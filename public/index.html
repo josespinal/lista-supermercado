@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Lista del súper</title>
+    <meta name="description" content="Nuestra lista del supermercado y lo que gastamos." />
+    <meta name="theme-color" content="#1f7a4d" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121513" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Súper" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div id="app" aria-live="polite">
+      <p class="loading">Cargando…</p>
+    </div>
+    <div id="toast" class="toast" role="status" hidden></div>
+  </body>
+</html>
