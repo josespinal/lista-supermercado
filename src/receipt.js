@@ -1,28 +1,50 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import * as z from "zod/v4";
+// Reads receipt photos through OpenRouter (https://openrouter.ai), which gives
+// one API for many models. Any model that accepts images and structured
+// outputs works; pick it with OPENROUTER_MODEL.
 
-const ReceiptSchema = z.object({
-  is_receipt: z.boolean(),
-  store: z.string().nullable(),
-  date: z.string().nullable(),
-  total: z.number().nullable(),
-  currency: z.string().nullable(),
-  lines: z.array(
-    z.object({
-      description: z.string(),
-      quantity: z.number().nullable(),
-      amount: z.number().nullable(),
-    }),
-  ),
-  matches: z.array(
-    z.object({
-      item_id: z.number(),
-      bought: z.boolean(),
-      receipt_line: z.string().nullable(),
-    }),
-  ),
-});
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+const nullable = (type) => ({ type: [type, "null"] });
+
+// Strict JSON schema: every property required, no extra keys.
+const RECEIPT_SCHEMA = {
+  type: "object",
+  properties: {
+    is_receipt: { type: "boolean" },
+    store: nullable("string"),
+    date: nullable("string"),
+    total: nullable("number"),
+    currency: nullable("string"),
+    lines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          description: { type: "string" },
+          quantity: nullable("number"),
+          amount: nullable("number"),
+        },
+        required: ["description", "quantity", "amount"],
+        additionalProperties: false,
+      },
+    },
+    matches: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          item_id: { type: "number" },
+          bought: { type: "boolean" },
+          receipt_line: nullable("string"),
+        },
+        required: ["item_id", "bought", "receipt_line"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["is_receipt", "store", "date", "total", "currency", "lines", "matches"],
+  additionalProperties: false,
+};
 
 const SYSTEM_PROMPT = `You read photos of supermarket receipts for a household's shared shopping-list app. Several photos are parts of one long receipt, in order. Receipts are usually in Spanish, often from the Dominican Republic, with abbreviated product names such as "LECHE ENT RICA 1LT" or "PLAT VERDE LB".
 
@@ -35,7 +57,9 @@ Extract:
 
 Then compare the receipt with the shopping list the user sends. Return one entry in matches for every list item. Set bought to true only when a receipt line is clearly that product; brand and size may differ, and a generic entry like "leche" matches any milk. Put that line's description in receipt_line. When you are unsure, set bought to false: the item then stays on the list for the next trip, and a person reviews every answer before it is saved.
 
-If the photos do not show a receipt or cannot be read, set is_receipt to false, leave lines and the other fields empty or null, and mark every list item as not bought.`;
+If the photos do not show a receipt or cannot be read, set is_receipt to false, leave lines and the other fields empty or null, and mark every list item as not bought.
+
+Answer only with the JSON object.`;
 
 export class ReceiptReadError extends Error {}
 
@@ -44,28 +68,58 @@ export class ReceiptReadError extends Error {}
 export function sanitizeReceipt(parsed, items) {
   const listIds = new Set(items.map((i) => i.id));
   const matches = {};
-  for (const m of parsed.matches ?? []) {
-    if (!listIds.has(m.item_id) || matches[m.item_id]) continue;
-    matches[m.item_id] = { bought: m.bought === true, receiptLine: m.receipt_line?.trim() || null };
+  for (const m of Array.isArray(parsed.matches) ? parsed.matches : []) {
+    if (!m || !listIds.has(m.item_id) || matches[m.item_id]) continue;
+    const line = typeof m.receipt_line === "string" ? m.receipt_line.trim() : "";
+    matches[m.item_id] = { bought: m.bought === true, receiptLine: line || null };
   }
   const toCents = (n) => (typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null);
+  const str = (v) => (typeof v === "string" ? v.trim() : "");
   return {
     isReceipt: parsed.is_receipt === true,
-    store: parsed.store?.trim() || null,
-    date: /^\d{4}-\d{2}-\d{2}$/.test(parsed.date ?? "") ? parsed.date : null,
+    store: str(parsed.store) || null,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(str(parsed.date)) ? str(parsed.date) : null,
     totalCents: toCents(parsed.total),
-    currency: /^[A-Za-z]{3}$/.test(parsed.currency ?? "") ? parsed.currency.toUpperCase() : null,
-    lines: (parsed.lines ?? []).slice(0, 300).map((l) => ({
-      description: String(l.description).trim(),
-      quantity: typeof l.quantity === "number" && Number.isFinite(l.quantity) ? l.quantity : null,
-      amountCents: toCents(l.amount),
-    })),
+    currency: /^[A-Za-z]{3}$/.test(str(parsed.currency)) ? str(parsed.currency).toUpperCase() : null,
+    lines: (Array.isArray(parsed.lines) ? parsed.lines : [])
+      .filter((l) => l && str(l.description))
+      .slice(0, 300)
+      .map((l) => ({
+        description: str(l.description),
+        quantity: typeof l.quantity === "number" && Number.isFinite(l.quantity) ? l.quantity : null,
+        amountCents: toCents(l.amount),
+      })),
     matches,
   };
 }
 
-export function createReceiptReader({ apiKey, model, effort, client } = {}) {
-  if (!client && !apiKey) {
+// Some models wrap JSON in ```json fences even when asked not to.
+export function parseModelJson(content) {
+  const text = Array.isArray(content)
+    ? content.map((part) => (typeof part === "string" ? part : part?.text ?? "")).join("")
+    : String(content ?? "");
+  const unfenced = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const parsed = JSON.parse(unfenced);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new SyntaxError("not an object");
+  return parsed;
+}
+
+function describeStatus(status, model) {
+  if (status === 401 || status === 403) return "La clave de OpenRouter no es válida. Revisa OPENROUTER_API_KEY en el servidor.";
+  if (status === 402) return "No hay crédito en la cuenta de OpenRouter. Recarga crédito y vuelve a intentar.";
+  if (status === 404) {
+    return `El modelo «${model}» no está disponible en OpenRouter o no lee fotos con respuesta en JSON. Cambia OPENROUTER_MODEL.`;
+  }
+  if (status === 413) return "Las fotos son muy grandes. Prueba con menos fotos.";
+  if (status === 429) return "OpenRouter está ocupado. Espera un minuto y vuelve a intentar.";
+  if (status === 400) return "OpenRouter no aceptó la foto. Prueba con otra foto más clara.";
+  return "No se pudo leer la factura. Llena los datos a mano.";
+}
+
+const RETRYABLE = new Set([408, 429, 500, 502, 503, 504]);
+
+export function createReceiptReader({ apiKey, model, fetch: fetchImpl = globalThis.fetch, retryDelayMs = 2000 } = {}) {
+  if (!apiKey) {
     return {
       available: false,
       async read() {
@@ -73,62 +127,91 @@ export function createReceiptReader({ apiKey, model, effort, client } = {}) {
       },
     };
   }
-  const anthropic = client ?? new Anthropic({ apiKey, timeout: 180_000, maxRetries: 1 });
+
+  async function post(body) {
+    for (let attempt = 1; ; attempt++) {
+      let res;
+      try {
+        res = await fetchImpl(OPENROUTER_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(180_000),
+        });
+      } catch (error) {
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, retryDelayMs));
+          continue;
+        }
+        const message =
+          error?.name === "TimeoutError"
+            ? "La lectura tardó demasiado. Vuelve a intentar o llena los datos a mano."
+            : "No se pudo conectar con OpenRouter. Revisa la conexión del servidor.";
+        throw new ReceiptReadError(message, { cause: error });
+      }
+      if (res.ok) return res.json();
+      if (RETRYABLE.has(res.status) && attempt < 2) {
+        await new Promise((r) => setTimeout(r, retryDelayMs));
+        continue;
+      }
+      const detail = await res.text().catch(() => "");
+      throw new ReceiptReadError(describeStatus(res.status, model), {
+        cause: new Error(`OpenRouter ${res.status}: ${detail.slice(0, 500)}`),
+      });
+    }
+  }
 
   return {
     available: true,
     // images: [{ mime, data: Buffer }], items: [{ id, name, quantity }]
     async read(images, items) {
       const list = items.map(({ id, name, quantity }) => ({ id, name, quantity: quantity || undefined }));
-      let response;
-      try {
-        response = await anthropic.beta.messages.parse({
-          model,
-          max_tokens: 16000,
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default",
-          output_config: { effort, format: betaZodOutputFormat(ReceiptSchema) },
-          system: SYSTEM_PROMPT,
-          messages: [
-            {
-              role: "user",
-              content: [
-                ...images.map((img) => ({
-                  type: "image",
-                  source: { type: "base64", media_type: img.mime, data: img.data.toString("base64") },
-                })),
-                { type: "text", text: `Lista de compras:\n${JSON.stringify(list)}` },
-              ],
-            },
-          ],
-        });
-      } catch (error) {
-        throw new ReceiptReadError(describeApiError(error), { cause: error });
-      }
+      const data = await post({
+        model,
+        temperature: 0,
+        max_tokens: 8000,
+        // Only route to providers that honour the JSON schema.
+        provider: { require_parameters: true },
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "receipt", strict: true, schema: RECEIPT_SCHEMA },
+        },
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: `Lista de compras:\n${JSON.stringify(list)}` },
+              ...images.map((img) => ({
+                type: "image_url",
+                image_url: { url: `data:${img.mime};base64,${img.data.toString("base64")}` },
+              })),
+            ],
+          },
+        ],
+      });
 
-      if (response.stop_reason === "refusal") {
-        throw new ReceiptReadError("No se pudo leer esta factura. Llena los datos a mano.");
+      if (data?.error) {
+        throw new ReceiptReadError(describeStatus(data.error.code, model), {
+          cause: new Error(`OpenRouter error: ${JSON.stringify(data.error).slice(0, 500)}`),
+        });
       }
-      if (response.stop_reason === "max_tokens" || !response.parsed_output) {
+      const choice = data?.choices?.[0];
+      if (choice?.finish_reason === "length") {
         throw new ReceiptReadError("La factura es muy larga para leerla de una vez. Llena los datos a mano.");
       }
-      return sanitizeReceipt(response.parsed_output, items);
+      let parsed;
+      try {
+        parsed = parseModelJson(choice?.message?.content);
+      } catch (error) {
+        throw new ReceiptReadError("No se pudo entender la respuesta del modelo. Vuelve a intentar o llena los datos a mano.", {
+          cause: error,
+        });
+      }
+      return sanitizeReceipt(parsed, items);
     },
   };
-}
-
-function describeApiError(error) {
-  if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
-    return "La clave de Claude no es válida. Revisa ANTHROPIC_API_KEY en el servidor.";
-  }
-  if (error instanceof Anthropic.RateLimitError) {
-    return "Claude está ocupado. Espera un minuto y vuelve a intentar.";
-  }
-  if (error instanceof Anthropic.BadRequestError) {
-    return "Claude no aceptó la foto. Prueba con otra foto más clara.";
-  }
-  if (error instanceof Anthropic.APIConnectionError) {
-    return "No se pudo conectar con Claude. Revisa la conexión del servidor.";
-  }
-  return "No se pudo leer la factura. Llena los datos a mano.";
 }

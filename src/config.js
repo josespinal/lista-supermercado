@@ -26,8 +26,7 @@ export function loadConfig(env = process.env) {
     currency: env.CURRENCY || "DOP",
     locale: env.LOCALE || "es-DO",
     trustProxy: env.TRUST_PROXY === "1" || env.TRUST_PROXY === "true",
-    anthropicApiKey: env.ANTHROPIC_API_KEY || "",
-    claudeModel: env.CLAUDE_MODEL || "claude-opus-5-5",
-    claudeEffort: env.CLAUDE_EFFORT || "medium",
+    openRouterApiKey: env.OPENROUTER_API_KEY || "",
+    openRouterModel: env.OPENROUTER_MODEL || "google/gemini-3.8-flash",
   };
 }

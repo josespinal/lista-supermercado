@@ -4,14 +4,14 @@ Una aplicación web para que dos personas (o más) compartan la lista del superm
 
 - **Lista compartida.** Cada uno agrega lo que va haciendo falta. Lo que agrega uno aparece al instante en el celular del otro.
 - **En el súper.** Marca cada cosa cuando la eches al carrito.
-- **Terminar compra.** Toma foto de la factura, escribe una nota y marca lo que compraste. Si hay clave de Claude, la app lee la factura: llena el supermercado, la fecha y el total, y busca cada cosa de la lista en la factura.
+- **Terminar compra.** Toma foto de la factura, escribe una nota y marca lo que compraste. Si hay clave de OpenRouter, la app lee la factura con inteligencia artificial: llena el supermercado, la fecha y el total, y busca cada cosa de la lista en la factura.
 - **Lo que faltó se queda en la lista.** Lo que no compraste sigue en la lista para la próxima vez, con la marca «Faltó la vez pasada».
 - **Gastos.** Total de este mes y del mes pasado, gasto de los últimos 6 meses y todas las compras con su foto, su nota y lo que faltó.
 
 ## Qué necesitas
 
 - Node.js 22 o más nuevo.
-- Opcional: una clave de la API de Claude (`ANTHROPIC_API_KEY`) para leer las facturas. Se consigue en <https://console.anthropic.com>.
+- Opcional: una clave de OpenRouter (`OPENROUTER_API_KEY`) para leer las facturas. Se consigue en <https://openrouter.ai/keys>. La cuenta necesita crédito.
 
 ## Probarla en tu computadora
 
@@ -30,14 +30,15 @@ Todo se configura en el archivo `.env` (mira `.env.example`):
 | Variable | Para qué sirve |
 | --- | --- |
 | `USERS` | Quiénes entran y su PIN: `"José:1234,Esposa:5678"`. Si cambias un PIN aquí, cambia al reiniciar la app. |
-| `ANTHROPIC_API_KEY` | Clave de Claude para leer las facturas. Sin ella, el total se escribe a mano. |
-| `CLAUDE_MODEL` | Modelo que lee las facturas. Por defecto `claude-opus-5-5`. |
-| `CLAUDE_EFFORT` | Cuánto razona el modelo: `low`, `medium` (por defecto) o `high`. |
+| `OPENROUTER_API_KEY` | Clave de OpenRouter para leer las facturas. Sin ella, el total se escribe a mano. |
+| `OPENROUTER_MODEL` | Modelo que lee las facturas. Por defecto `google/gemini-3.8-flash`. |
 | `CURRENCY`, `LOCALE` | Moneda y formato de los montos. Por defecto pesos dominicanos (`DOP`, `es-DO`). |
 | `TRUST_PROXY` | Pon `1` cuando la app está detrás de nginx. |
 | `DATA_DIR` | Carpeta de la base de datos y las fotos. Por defecto `./data`. |
 
-**Costo de leer facturas:** cada lectura usa la API de Claude y se cobra en tu cuenta de Anthropic. Una factura cuesta unos centavos de dólar; una factura larga con varias fotos cuesta más.
+**Costo de leer facturas:** cada lectura se cobra del crédito de tu cuenta de OpenRouter. Con el modelo por defecto, una factura cuesta alrededor de 1 centavo de dólar; una factura larga con varias fotos cuesta un poco más.
+
+**Cambiar de modelo:** puedes usar cualquier modelo de OpenRouter que lea imágenes y responda en JSON. En la [lista de modelos](https://openrouter.ai/models?supported_parameters=structured_outputs&input_modalities=image) filtra por *image* y *structured outputs*, copia el nombre (por ejemplo `anthropic/claude-haiku-5.5` u `openai/gpt-6-luna`) y ponlo en `OPENROUTER_MODEL`. Si el modelo no sirve, la app lo dice al leer la factura.
 
 ## Ponerla en internet
 
@@ -50,7 +51,7 @@ Para usarla desde la calle, la app tiene que estar en un servidor con HTTPS. Con
    git pull origin main
    npm ci --omit=dev
    ```
-3. Crea el archivo `.env` en la carpeta del sitio con `USERS`, `ANTHROPIC_API_KEY`, `PORT=3000` y `TRUST_PROXY=1`.
+3. Crea el archivo `.env` en la carpeta del sitio con `USERS`, `OPENROUTER_API_KEY`, `PORT=3000` y `TRUST_PROXY=1`.
 4. Crea un *daemon* (proceso que siempre corre) con el comando `npm start` en la carpeta del sitio.
 5. En la configuración de nginx del sitio, envía el tráfico a la app:
    ```nginx
@@ -80,6 +81,6 @@ npm test       # pruebas del servidor
 
 - `src/server.js`: rutas de la API y arranque.
 - `src/db.js`: base de datos (SQLite) y reglas de la lista y las compras.
-- `src/receipt.js`: lectura de la factura con Claude.
+- `src/receipt.js`: lectura de la factura con OpenRouter.
 - `src/auth.js`: entrada con PIN y sesiones.
 - `public/`: la app que se ve en el celular (HTML, CSS y JavaScript, sin compilación).

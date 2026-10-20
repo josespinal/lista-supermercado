@@ -344,9 +344,8 @@ async function main() {
   const store = createStore(db);
   store.syncUsers(config.users, hashPin);
   const receiptReader = createReceiptReader({
-    apiKey: config.anthropicApiKey,
-    model: config.claudeModel,
-    effort: config.claudeEffort,
+    apiKey: config.openRouterApiKey,
+    model: config.openRouterModel,
   });
   const { app, events, sweepOrphans } = createApp({ config, store, receiptReader });
   sweepOrphans();
@@ -355,7 +354,9 @@ async function main() {
   const server = app.listen(config.port, config.host, () => {
     console.log(`Lista del supermercado en http://localhost:${config.port}`);
     console.log(`Usuarios: ${config.users.map((u) => u.name).join(", ")}`);
-    console.log(`Lectura de facturas: ${receiptReader.available ? `sí (${config.claudeModel})` : "no (falta ANTHROPIC_API_KEY)"}`);
+    console.log(
+      `Lectura de facturas: ${receiptReader.available ? `sí (OpenRouter, ${config.openRouterModel})` : "no (falta OPENROUTER_API_KEY)"}`,
+    );
   });
   const shutdown = () => {
     events.close();

@@ -356,10 +356,10 @@ describe("API", () => {
       const form = new FormData();
       form.append("photo", new Blob([JPEG], { type: "image/jpeg" }), "factura.jpg");
       const { id } = (await jose.post("/api/uploads", form)).body;
-      outcome = new ReceiptReadError("Claude está ocupado.");
+      outcome = new ReceiptReadError("OpenRouter está ocupado.");
       const res = await jose.post("/api/receipts/read", { uploadIds: [id] });
       assert.equal(res.status, 502);
-      assert.equal(res.body.error, "Claude está ocupado.");
+      assert.equal(res.body.error, "OpenRouter está ocupado.");
     });
   });
 });
