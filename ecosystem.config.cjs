@@ -3,7 +3,7 @@ module.exports = {
   apps: [
     {
       name: "lista-super",
-      script: "src/server.js",
+      script: "src/start.js",
       node_args: "--env-file-if-exists=.env",
       cwd: __dirname,
       max_memory_restart: "300M",

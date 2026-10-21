@@ -2,10 +2,10 @@
   "name": "lista-supermercado",
   "version": "1.0.0",
   "description": "Lista del supermercado compartida, con registro de gastos a partir de la foto de la factura.",
-  "main": "src/server.js",
+  "main": "src/start.js",
   "scripts": {
-    "start": "node --env-file-if-exists=.env src/server.js",
-    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "start": "node --env-file-if-exists=.env src/start.js",
+    "dev": "node --env-file-if-exists=.env --watch src/start.js",
     "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {

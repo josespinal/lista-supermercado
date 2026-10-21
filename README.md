@@ -79,7 +79,8 @@ npm run dev    # reinicia la app cuando cambias un archivo
 npm test       # pruebas del servidor
 ```
 
-- `src/server.js`: rutas de la API y arranque.
+- `src/start.js`: arranque de la app.
+- `src/server.js`: rutas de la API.
 - `src/db.js`: base de datos (SQLite) y reglas de la lista y las compras.
 - `src/receipt.js`: lectura de la factura con OpenRouter.
 - `src/auth.js`: entrada con PIN y sesiones.

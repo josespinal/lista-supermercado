@@ -1,21 +1,18 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import express from "express";
 import multer from "multer";
 import {
   createLoginLimiter,
   endSession,
-  hashPin,
   sessionUser,
   startSession,
   verifyPin,
 } from "./auth.js";
-import { loadConfig } from "./config.js";
-import { createStore, openDatabase } from "./db.js";
 import { createEventHub } from "./events.js";
-import { createReceiptReader, ReceiptReadError } from "./receipt.js";
+import { ReceiptReadError } from "./receipt.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(here, "..", "public");
@@ -336,42 +333,4 @@ export function createApp({ config, store, receiptReader }) {
   };
 
   return { app, events, sweepOrphans };
-}
-
-async function main() {
-  const config = loadConfig();
-  const db = openDatabase(config.dataDir);
-  const store = createStore(db);
-  store.syncUsers(config.users, hashPin);
-  const receiptReader = createReceiptReader({
-    apiKey: config.openRouterApiKey,
-    model: config.openRouterModel,
-  });
-  const { app, events, sweepOrphans } = createApp({ config, store, receiptReader });
-  sweepOrphans();
-  setInterval(sweepOrphans, 6 * 60 * 60 * 1000).unref();
-
-  const server = app.listen(config.port, config.host, () => {
-    console.log(`Lista del supermercado en http://localhost:${config.port}`);
-    console.log(`Usuarios: ${config.users.map((u) => u.name).join(", ")}`);
-    console.log(
-      `Lectura de facturas: ${receiptReader.available ? `sí (OpenRouter, ${config.openRouterModel})` : "no (falta OPENROUTER_API_KEY)"}`,
-    );
-  });
-  const shutdown = () => {
-    events.close();
-    server.close(() => {
-      db.close();
-      process.exit(0);
-    });
-  };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main().catch((error) => {
-    console.error(error.message);
-    process.exit(1);
-  });
 }
