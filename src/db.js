@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -67,11 +67,57 @@ CREATE TABLE IF NOT EXISTS uploads (
 );
 `;
 
+// node:sqlite ships with Node, so nothing has to be compiled on the server.
+// This thin layer gives it the few conveniences the store relies on: plain
+// row objects, numeric ids, and transaction(fn).
+class Db {
+  constructor(file) {
+    this.raw = new DatabaseSync(file);
+  }
+
+  exec(sql) {
+    this.raw.exec(sql);
+  }
+
+  prepare(sql) {
+    const statement = this.raw.prepare(sql);
+    return {
+      run: (...params) => {
+        const { changes, lastInsertRowid } = statement.run(...params);
+        return { changes: Number(changes), lastInsertRowid: Number(lastInsertRowid) };
+      },
+      get: (...params) => {
+        const row = statement.get(...params);
+        return row ? { ...row } : undefined;
+      },
+      all: (...params) => statement.all(...params).map((row) => ({ ...row })),
+    };
+  }
+
+  transaction(fn) {
+    return (...args) => {
+      this.raw.exec("BEGIN");
+      try {
+        const result = fn(...args);
+        this.raw.exec("COMMIT");
+        return result;
+      } catch (error) {
+        this.raw.exec("ROLLBACK");
+        throw error;
+      }
+    };
+  }
+
+  close() {
+    this.raw.close();
+  }
+}
+
 export function openDatabase(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
-  const db = new Database(path.join(dataDir, "lista.db"));
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  const db = new Db(path.join(dataDir, "lista.db"));
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
   db.exec(SCHEMA);
   return db;
 }

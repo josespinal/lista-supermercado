@@ -10,7 +10,7 @@ Una aplicación web para que dos personas (o más) compartan la lista del superm
 
 ## Qué necesitas
 
-- Node.js 22 o más nuevo.
+- Node.js 22.13 o más nuevo.
 - Opcional: una clave de OpenRouter (`OPENROUTER_API_KEY`) para leer las facturas. Se consigue en <https://openrouter.ai/keys>. La cuenta necesita crédito.
 
 ## Probarla en tu computadora
